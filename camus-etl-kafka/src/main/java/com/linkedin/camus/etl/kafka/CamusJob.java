@@ -171,7 +171,7 @@ public class CamusJob extends Configured implements Tool {
 					}
 				}
 			} else {
-				System.out.println("hdfs.default.classpath.dir "
+				log.info("hdfs.default.classpath.dir "
 						+ hadoopCacheJarDir + " is empty.");
 			}
 		}
@@ -248,8 +248,7 @@ public class CamusJob extends Configured implements Tool {
 			FileInputFormat.setInputPaths(job, previous);
 			log.info("Previous execution: " + previous.toString());
 		} else {
-			System.out
-					.println("No previous execution, all topics pulled from earliest available offset");
+			log.info("No previous execution, all topics pulled from earliest available offset");
 		}
 
 		// creating new execution dir. offsets, error_logs, and count files will
@@ -308,7 +307,7 @@ public class CamusJob extends Configured implements Tool {
 					.getTaskAttemptId().getJobID())) {
 				if (task.getCurrentStatus().equals(TIPStatus.FAILED)) {
 					for (String s : task.getDiagnostics()) {
-						System.err.println("task error: " + s);
+						log.error("task error: " + s);
 					}
 				}
 			}
@@ -327,8 +326,8 @@ public class CamusJob extends Configured implements Tool {
 			ExceptionWritable value = new ExceptionWritable();
 
 			while (reader.next(key, value)) {
-				System.err.println(key.toString());
-				System.err.println(value.toString());
+                log.error(key);
+                log.error(value);
 			}
 			reader.close();
 		}

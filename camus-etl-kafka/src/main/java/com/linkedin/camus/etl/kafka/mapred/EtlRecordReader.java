@@ -209,7 +209,7 @@ public class EtlRecordReader extends RecordReader<EtlKey, CamusWrapper> {
                     key.set(request.getTopic(), request.getLeaderId(), request.getPartition(),
                             request.getOffset(), request.getOffset(), 0);
                     value = null;
-                    log.info("\n\ntopic:" + request.getTopic() + " partition:"
+                    log.info("topic:" + request.getTopic() + " partition:"
                             + request.getPartition() + " beginOffset:" + request.getOffset()
                             + " estimatedLastOffset:" + request.getLastOffset());
 
@@ -254,6 +254,7 @@ public class EtlRecordReader extends RecordReader<EtlKey, CamusWrapper> {
                     try {
                         wrapper = getWrappedRecord(key.getTopic(), bytes);
                     } catch (Exception e) {
+                        log.debug("Failed to get WrappedRecord",e);
                         if (exceptionCount < getMaximumDecoderExceptionsToPrint(context)) {
                             mapperContext.write(key, new ExceptionWritable(e));
                             exceptionCount++;
@@ -265,6 +266,7 @@ public class EtlRecordReader extends RecordReader<EtlKey, CamusWrapper> {
                     }
 
                     if (wrapper == null) {
+                        log.debug("Got null Record");
                         mapperContext.write(key, new ExceptionWritable(new RuntimeException(
                                 "null record")));
                         continue;
@@ -276,6 +278,7 @@ public class EtlRecordReader extends RecordReader<EtlKey, CamusWrapper> {
                         key.setPartition(wrapper.getPartitionMap());
                         setServerService();
                     } catch (Exception e) {
+                        log.debug("Failed to set timestamp and partition",e);
                         mapperContext.write(key, new ExceptionWritable(e));
                         continue;
                     }
@@ -318,6 +321,7 @@ public class EtlRecordReader extends RecordReader<EtlKey, CamusWrapper> {
                 count = 0;
                 reader = null;
             } catch (Throwable t) {
+                log.error("Failed to get nextKeyValue",t);
                 Exception e = new Exception(t.getLocalizedMessage(), t);
                 e.setStackTrace(t.getStackTrace());
                 mapperContext.write(key, new ExceptionWritable(e));

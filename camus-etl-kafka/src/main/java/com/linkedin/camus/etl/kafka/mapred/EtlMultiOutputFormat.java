@@ -88,8 +88,10 @@ public class EtlMultiOutputFormat extends FileOutputFormat<EtlKey, Object> {
         try {
             recordWriterProvider = getRecordWriterProviderClass(context).newInstance();
         } catch (InstantiationException e) {
+            log.error("Failed to get DataRecordWriter",e);
             throw new IllegalStateException(e);
         } catch (IllegalAccessException e) {
+            log.error("Failed to get DataRecordWriter",e);
             throw new IllegalStateException(e);
         }
         return recordWriterProvider.getDataRecordWriter(context, fileName, value, committer);
@@ -334,6 +336,7 @@ public class EtlMultiOutputFormat extends FileOutputFormat<EtlKey, Object> {
             try {
                 recordWriterProvider = getRecordWriterProviderClass(context).newInstance();
             } catch (Exception e) {
+                log.error("Failed to get RecordWriterProviderClass",e);
                 throw new IllegalStateException(e);
             }
             workingFileMetadataPattern = Pattern.compile("data\\.([^\\.]+)\\.(\\d+)\\.(\\d+)\\.([^\\.]+)-m-\\d+" + recordWriterProvider.getFilenameExtension());
@@ -394,7 +397,10 @@ public class EtlMultiOutputFormat extends FileOutputFormat<EtlKey, Object> {
         public String getPartitionedPath(JobContext context, String file, int count, long offset) throws IOException {
             Matcher m = workingFileMetadataPattern.matcher(file);
             if(! m.find()) {
-                throw new IOException("Could not extract metadata from working filename '" + file + "'");
+                String message = "Could not extract metadata from working filename '" + file + "'";
+                IOException ioException = new IOException(message);
+                log.error(message,ioException);
+                throw ioException;
             }
             String topic = m.group(1);
             String leaderId = m.group(2);

@@ -164,10 +164,8 @@ public class KafkaReader {
 		try {
 			fetchResponse = simpleConsumer.fetch(fetchRequest);
 			if (fetchResponse.hasError()) {
-				log.info("Error encountered during a fetch request from Kafka");
-				log.info("Error Code generated : "
-						+ fetchResponse.errorCode(kafkaRequest.getTopic(),
-								kafkaRequest.getPartition()));
+				log.error("Error encountered during a fetch request from Kafka");
+				log.error("Error Code generated : " + fetchResponse.errorCode(topic, partition));
 				return false;
 			} else {
 				ByteBufferMessageSet messageBuffer = fetchResponse.messageSet(
@@ -189,8 +187,7 @@ public class KafkaReader {
 						//flag = true;
 						skipped++;
 					} else {
-						log.debug("Skipped offsets till : "
-								+ message.offset());
+						log.debug("Skipped offsets till : "+ message.offset());
 						break;
 					}
 				}
@@ -203,8 +200,7 @@ public class KafkaReader {
 				}
 
 				if (!messageIter.hasNext()) {
-					System.out
-							.println("No more data left to process. Returning false");
+					log.info("No more data left to process. Returning false");
 					messageIter = null;
 					return false;
 				}
