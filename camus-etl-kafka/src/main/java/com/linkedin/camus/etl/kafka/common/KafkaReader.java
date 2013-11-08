@@ -3,12 +3,15 @@ package com.linkedin.camus.etl.kafka.common;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 
-import kafka.api.PartitionFetchInfo;
+import kafka.api.*;
+import kafka.api.FetchRequest;
 import kafka.common.TopicAndPartition;
-import kafka.javaapi.FetchRequest;
+import kafka.javaapi.*;
 import kafka.javaapi.FetchResponse;
 import kafka.javaapi.consumer.SimpleConsumer;
 import kafka.javaapi.message.ByteBufferMessageSet;
@@ -140,26 +143,24 @@ public class KafkaReader {
 	 * @throws IOException
 	 */
 
-	public boolean fetch() throws IOException {
+	private boolean fetch() throws IOException {
 		if (currentOffset >= lastOffset) {
 			return false;
 		}
 		long tempTime = System.currentTimeMillis();
-		TopicAndPartition topicAndPartition = new TopicAndPartition(
-				kafkaRequest.getTopic(), kafkaRequest.getPartition());
-		log.debug("\nAsking for offset : " + (currentOffset+1));
-		PartitionFetchInfo partitionFetchInfo = new PartitionFetchInfo(
-				currentOffset+1, fetchBufferSize);
+        String clientName = CamusJob.getKafkaClientName(context);
+        String topic = kafkaRequest.getTopic();
+        int partition = kafkaRequest.getPartition();
+        log.debug("Asking for offset : " + currentOffset);
 
-		HashMap<TopicAndPartition, PartitionFetchInfo> fetchInfo = new HashMap<TopicAndPartition, PartitionFetchInfo>();
-		fetchInfo.put(topicAndPartition, partitionFetchInfo);
-
-		FetchRequest fetchRequest = new FetchRequest(
-				CamusJob.getKafkaFetchRequestCorrelationId(context),
-				CamusJob.getKafkaClientName(context),
-				CamusJob.getKafkaFetchRequestMaxWait(context),
-				CamusJob.getKafkaFetchRequestMinBytes(context), fetchInfo);
-
+        int maxWait = CamusJob.getKafkaFetchRequestMaxWait(context);
+        int minBytes = CamusJob.getKafkaFetchRequestMinBytes(context);
+        FetchRequest fetchRequest = new FetchRequestBuilder()
+                .clientId(clientName)
+                .addFetch(topic,partition,currentOffset,fetchBufferSize)
+                .maxWait(maxWait)
+                .minBytes(minBytes)
+                .build();
 		FetchResponse fetchResponse = null;
 		try {
 			fetchResponse = simpleConsumer.fetch(fetchRequest);
@@ -168,18 +169,15 @@ public class KafkaReader {
 				log.error("Error Code generated : " + fetchResponse.errorCode(topic, partition));
 				return false;
 			} else {
-				ByteBufferMessageSet messageBuffer = fetchResponse.messageSet(
-						kafkaRequest.getTopic(), kafkaRequest.getPartition());
-				lastFetchTime = (System.currentTimeMillis() - tempTime);
-				log.debug("Time taken to fetch : "
-						+ (lastFetchTime / 1000) + " seconds");
+				ByteBufferMessageSet messageBuffer = fetchResponse.messageSet(topic, partition);
+                lastFetchTime = (System.currentTimeMillis() - tempTime);
+				log.debug("Time taken to fetch : "+ (lastFetchTime / 1000) + " seconds");
 				log.debug("The size of the ByteBufferMessageSet returned is : " + messageBuffer.sizeInBytes());
 				int skipped = 0;
 				totalFetchTime += lastFetchTime;
 				messageIter = messageBuffer.iterator();
 				//boolean flag = false;
-				Iterator<MessageAndOffset> messageIter2 = messageBuffer
-						.iterator();
+				Iterator<MessageAndOffset> messageIter2 = messageBuffer.iterator();
 				MessageAndOffset message = null;
 				while (messageIter2.hasNext()) {
 					message = messageIter2.next();

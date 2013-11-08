@@ -81,11 +81,11 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 	 * @param context
 	 * @return
 	 */
-	public List<TopicMetadata> getKafkaMetadata(JobContext context) {
+	private List<TopicMetadata> getKafkaMetadata(JobContext context) {
 		ArrayList<String> metaRequestTopics = new ArrayList<String>();
 		CamusJob.startTiming("kafkaSetupTime");
 		String brokerString = CamusJob.getKafkaBrokers(context);
-                List<String> brokers = Arrays.asList(brokerString.split("\\s*,\\s*"));
+        List<String> brokers = Arrays.asList(brokerString.split("\\s*,\\s*"));
 		Collections.shuffle(brokers);
 		boolean fetchMetaDataSucceeded = false;
 		int i = 0;
@@ -96,7 +96,8 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 			log.info(String.format("Fetching metadata from broker %s with client id %s for %d topic(s) %s",
 			brokers.get(i), consumer.clientId(), metaRequestTopics.size(), metaRequestTopics));
 			try {
-				topicMetadataList = consumer.send(new TopicMetadataRequest(metaRequestTopics)).topicsMetadata();
+                TopicMetadataRequest request = new TopicMetadataRequest(metaRequestTopics);
+                topicMetadataList = consumer.send(request).topicsMetadata();
 				fetchMetaDataSucceeded = true;
 			} catch (Exception e) {
 				savedException = e;
@@ -137,11 +138,12 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 			HashMap<LeaderInfo, ArrayList<TopicAndPartition>> offsetRequestInfo) {
 		ArrayList<EtlRequest> finalRequests = new ArrayList<EtlRequest>();
 		for (LeaderInfo leader : offsetRequestInfo.keySet()) {
-			SimpleConsumer consumer = new SimpleConsumer(leader.getUri()
+            String clientName = CamusJob.getKafkaClientName(context);
+            SimpleConsumer consumer = new SimpleConsumer(leader.getUri()
 					.getHost(), leader.getUri().getPort(),
 					CamusJob.getKafkaTimeoutValue(context),
 					CamusJob.getKafkaBufferSize(context),
-					CamusJob.getKafkaClientName(context));
+                    clientName);
 			// Latest Offset
 			PartitionOffsetRequestInfo partitionLatestOffsetRequestInfo = new PartitionOffsetRequestInfo(
 					kafka.api.OffsetRequest.LatestTime(), 1);
@@ -150,34 +152,24 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 					kafka.api.OffsetRequest.EarliestTime(), 1);
 			Map<TopicAndPartition, PartitionOffsetRequestInfo> latestOffsetInfo = new HashMap<TopicAndPartition, PartitionOffsetRequestInfo>();
 			Map<TopicAndPartition, PartitionOffsetRequestInfo> earliestOffsetInfo = new HashMap<TopicAndPartition, PartitionOffsetRequestInfo>();
-			ArrayList<TopicAndPartition> topicAndPartitions = offsetRequestInfo
-					.get(leader);
+			ArrayList<TopicAndPartition> topicAndPartitions = offsetRequestInfo.get(leader);
 			for (TopicAndPartition topicAndPartition : topicAndPartitions) {
-				latestOffsetInfo.put(topicAndPartition,
-						partitionLatestOffsetRequestInfo);
-				earliestOffsetInfo.put(topicAndPartition,
-						partitionEarliestOffsetRequestInfo);
+				latestOffsetInfo.put(topicAndPartition,partitionLatestOffsetRequestInfo);
+				earliestOffsetInfo.put(topicAndPartition,partitionEarliestOffsetRequestInfo);
 			}
 
-			OffsetResponse latestOffsetResponse = consumer
-					.getOffsetsBefore(new OffsetRequest(latestOffsetInfo,
-							kafka.api.OffsetRequest.CurrentVersion(), CamusJob
-									.getKafkaClientName(context)));
+            short currentVersion = kafka.api.OffsetRequest.CurrentVersion();
+            OffsetResponse latestOffsetResponse = consumer
+					.getOffsetsBefore(new OffsetRequest(latestOffsetInfo,currentVersion, clientName));
 			OffsetResponse earliestOffsetResponse = consumer
-					.getOffsetsBefore(new OffsetRequest(earliestOffsetInfo,
-							kafka.api.OffsetRequest.CurrentVersion(), CamusJob
-									.getKafkaClientName(context)));
+					.getOffsetsBefore(new OffsetRequest(earliestOffsetInfo,currentVersion, clientName));
 			consumer.close();
 			for (TopicAndPartition topicAndPartition : topicAndPartitions) {
-				long latestOffset = latestOffsetResponse.offsets(
-						topicAndPartition.topic(),
-						topicAndPartition.partition())[0];
-				long earliestOffset = earliestOffsetResponse.offsets(
-						topicAndPartition.topic(),
-						topicAndPartition.partition())[0];
-				EtlRequest etlRequest = new EtlRequest(context,
-						topicAndPartition.topic(), Integer.toString(leader
-								.getLeaderId()), topicAndPartition.partition(),
+                String topic = topicAndPartition.topic();
+                int partition = topicAndPartition.partition();
+                long latestOffset = latestOffsetResponse.offsets(topic,partition)[0];
+				long earliestOffset = earliestOffsetResponse.offsets(topic,partition)[0];
+				EtlRequest etlRequest = new EtlRequest(context,topic, Integer.toString(leader.getLeaderId()), partition,
 						leader.getUri());
 				etlRequest.setLatestOffset(latestOffset);
 				etlRequest.setEarliestOffset(earliestOffset);
@@ -227,11 +219,9 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 			List<TopicMetadata> topicMetadataList = getKafkaMetadata(context);
 
 			// Filter any white list topics
-			HashSet<String> whiteListTopics = new HashSet<String>(
-					Arrays.asList(getKafkaWhitelistTopic(context)));
+			HashSet<String> whiteListTopics = new HashSet<String>(Arrays.asList(getKafkaWhitelistTopic(context)));
 			if (!whiteListTopics.isEmpty()) {
-				topicMetadataList = filterWhitelistTopics(topicMetadataList,
-						whiteListTopics);
+				topicMetadataList = filterWhitelistTopics(topicMetadataList,whiteListTopics);
 			}
 
 			// Filter all blacklist topics
@@ -250,10 +240,8 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 					log.info("Discarding topic (Decoder generation failed) : "
 							+ topicMetadata.topic());
 				} else {
-					for (PartitionMetadata partitionMetadata : topicMetadata
-							.partitionsMetadata()) {
-						if (partitionMetadata.errorCode() != ErrorMapping
-								.NoError()) {
+					for (PartitionMetadata partitionMetadata : topicMetadata.partitionsMetadata()) {
+						if (partitionMetadata.errorCode() != ErrorMapping.NoError()) {
 							log.info("Skipping the creation of ETL request for Topic : "
 									+ topicMetadata.topic()
 									+ " and Partition : "
@@ -265,25 +253,18 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 							continue;
 						} else {
 
-							LeaderInfo leader = new LeaderInfo(new URI("tcp://"
-									+ partitionMetadata.leader()
-											.getConnectionString()),
-									partitionMetadata.leader().id());
+                            URI uri = new URI("tcp://"+ partitionMetadata.leader().getConnectionString());
+                            LeaderInfo leader = new LeaderInfo(uri,partitionMetadata.leader().id());
 							if (offsetRequestInfo.containsKey(leader)) {
-								ArrayList<TopicAndPartition> topicAndPartitions = offsetRequestInfo
-										.get(leader);
+								ArrayList<TopicAndPartition> topicAndPartitions = offsetRequestInfo.get(leader);
 								topicAndPartitions.add(new TopicAndPartition(
 										topicMetadata.topic(),
 										partitionMetadata.partitionId()));
-								offsetRequestInfo.put(leader,
-										topicAndPartitions);
+								offsetRequestInfo.put(leader,topicAndPartitions);
 							} else {
 								ArrayList<TopicAndPartition> topicAndPartitions = new ArrayList<TopicAndPartition>();
-								topicAndPartitions.add(new TopicAndPartition(
-										topicMetadata.topic(),
-										partitionMetadata.partitionId()));
-								offsetRequestInfo.put(leader,
-										topicAndPartitions);
+								topicAndPartitions.add(new TopicAndPartition(topicMetadata.topic(),partitionMetadata.partitionId()));
+								offsetRequestInfo.put(leader,topicAndPartitions);
 							}
 
 						}
@@ -297,8 +278,7 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 			return null;
 		}
 		// Get the latest offsets and generate the EtlRequests
-		finalRequests = fetchLatestOffsetAndCreateEtlRequests(context,
-				offsetRequestInfo);
+		finalRequests = fetchLatestOffsetAndCreateEtlRequests(context,offsetRequestInfo);
 
 		Collections.sort(finalRequests, new Comparator<EtlRequest>() {
 			public int compare(EtlRequest r1, EtlRequest r2) {
@@ -307,8 +287,7 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 		});
 
 		writeRequests(finalRequests, context);
-		Map<EtlRequest, EtlKey> offsetKeys = getPreviousOffsets(
-				FileInputFormat.getInputPaths(context), context);
+		Map<EtlRequest, EtlKey> offsetKeys = getPreviousOffsets(FileInputFormat.getInputPaths(context), context);
 		Set<String> moveLatest = getMoveToLatestTopicsSet(context);
 		for (EtlRequest request : finalRequests) {
 			if (moveLatest.contains(request.getTopic())
@@ -316,8 +295,7 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 				offsetKeys.put(
 						request,
 						new EtlKey(request.getTopic(), request.getLeaderId(),
-								request.getPartition(), 0, request
-										.getLastOffset()));
+								request.getPartition(), 0, request.getLastOffset()));
 			}
 
 			EtlKey key = offsetKeys.get(request);
@@ -380,22 +358,14 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 		}
 	}
 
-	private List<InputSplit> allocateWork(List<EtlRequest> requests,
-			JobContext context) throws IOException {
-		int numTasks = context.getConfiguration()
-				.getInt("mapred.map.tasks", 30);
+	private List<InputSplit> allocateWork(List<EtlRequest> requests, JobContext context) throws IOException {
+		int numTasks = context.getConfiguration().getInt("mapred.map.tasks", 30);
 		// Reverse sort by size
 		Collections.sort(requests, new Comparator<EtlRequest>() {
-			@Override
 			public int compare(EtlRequest o1, EtlRequest o2) {
-				if (o2.estimateDataSize() == o1.estimateDataSize()) {
-					return 0;
-				}
-				if (o2.estimateDataSize() < o1.estimateDataSize()) {
-					return -1;
-				} else {
-					return 1;
-				}
+                Long o2dataSize = Long.valueOf(o2.estimateDataSize());
+                Long o1dataSize = Long.valueOf(o1.estimateDataSize());
+                return o2dataSize.compareTo(o1dataSize);
 			}
 		});
 
