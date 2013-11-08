@@ -226,7 +226,7 @@ public class EtlRequest implements Writable {
 
     public long getEarliestOffset() {
         if (this.earliestOffset == -2 && uri != null) {
-            // TODO : Make the hardcoded paramters configurable
+            // TODO : Make the hardcoded parameters configurable
             SimpleConsumer consumer = new SimpleConsumer(uri.getHost(), uri.getPort(), 60000,
                     1024 * 1024, "hadoop-etl");
             Map<TopicAndPartition, PartitionOffsetRequestInfo> offsetInfo = new HashMap<TopicAndPartition, PartitionOffsetRequestInfo>();
