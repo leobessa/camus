@@ -3,15 +3,12 @@ package com.linkedin.camus.etl.kafka.common;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.List;
 
-import kafka.api.*;
-import kafka.api.FetchRequest;
+import kafka.api.PartitionFetchInfo;
 import kafka.common.TopicAndPartition;
-import kafka.javaapi.*;
+import kafka.javaapi.FetchRequest;
 import kafka.javaapi.FetchResponse;
 import kafka.javaapi.consumer.SimpleConsumer;
 import kafka.javaapi.message.ByteBufferMessageSet;
@@ -143,41 +140,48 @@ public class KafkaReader {
 	 * @throws IOException
 	 */
 
-	private boolean fetch() throws IOException {
+	public boolean fetch() throws IOException {
 		if (currentOffset >= lastOffset) {
 			return false;
 		}
 		long tempTime = System.currentTimeMillis();
-        String clientName = CamusJob.getKafkaClientName(context);
-        String topic = kafkaRequest.getTopic();
-        int partition = kafkaRequest.getPartition();
-        log.debug("Asking for offset : " + currentOffset);
+		TopicAndPartition topicAndPartition = new TopicAndPartition(
+				kafkaRequest.getTopic(), kafkaRequest.getPartition());
+		log.debug("\nAsking for offset : " + (currentOffset+1));
+		PartitionFetchInfo partitionFetchInfo = new PartitionFetchInfo(
+				currentOffset+1, fetchBufferSize);
 
-        int maxWait = CamusJob.getKafkaFetchRequestMaxWait(context);
-        int minBytes = CamusJob.getKafkaFetchRequestMinBytes(context);
-        FetchRequest fetchRequest = new FetchRequestBuilder()
-                .clientId(clientName)
-                .addFetch(topic,partition,currentOffset,fetchBufferSize)
-                .maxWait(maxWait)
-                .minBytes(minBytes)
-                .build();
+		HashMap<TopicAndPartition, PartitionFetchInfo> fetchInfo = new HashMap<TopicAndPartition, PartitionFetchInfo>();
+		fetchInfo.put(topicAndPartition, partitionFetchInfo);
+
+		FetchRequest fetchRequest = new FetchRequest(
+				CamusJob.getKafkaFetchRequestCorrelationId(context),
+				CamusJob.getKafkaClientName(context),
+				CamusJob.getKafkaFetchRequestMaxWait(context),
+				CamusJob.getKafkaFetchRequestMinBytes(context), fetchInfo);
+
 		FetchResponse fetchResponse = null;
 		try {
 			fetchResponse = simpleConsumer.fetch(fetchRequest);
 			if (fetchResponse.hasError()) {
-				log.error("Error encountered during a fetch request from Kafka");
-				log.error("Error Code generated : " + fetchResponse.errorCode(topic, partition));
+				log.info("Error encountered during a fetch request from Kafka");
+				log.info("Error Code generated : "
+						+ fetchResponse.errorCode(kafkaRequest.getTopic(),
+								kafkaRequest.getPartition()));
 				return false;
 			} else {
-				ByteBufferMessageSet messageBuffer = fetchResponse.messageSet(topic, partition);
-                lastFetchTime = (System.currentTimeMillis() - tempTime);
-				log.debug("Time taken to fetch : "+ (lastFetchTime / 1000) + " seconds");
+				ByteBufferMessageSet messageBuffer = fetchResponse.messageSet(
+						kafkaRequest.getTopic(), kafkaRequest.getPartition());
+				lastFetchTime = (System.currentTimeMillis() - tempTime);
+				log.debug("Time taken to fetch : "
+						+ (lastFetchTime / 1000) + " seconds");
 				log.debug("The size of the ByteBufferMessageSet returned is : " + messageBuffer.sizeInBytes());
 				int skipped = 0;
 				totalFetchTime += lastFetchTime;
 				messageIter = messageBuffer.iterator();
 				//boolean flag = false;
-				Iterator<MessageAndOffset> messageIter2 = messageBuffer.iterator();
+				Iterator<MessageAndOffset> messageIter2 = messageBuffer
+						.iterator();
 				MessageAndOffset message = null;
 				while (messageIter2.hasNext()) {
 					message = messageIter2.next();
@@ -185,7 +189,8 @@ public class KafkaReader {
 						//flag = true;
 						skipped++;
 					} else {
-						log.debug("Skipped offsets till : "+ message.offset());
+						log.debug("Skipped offsets till : "
+								+ message.offset());
 						break;
 					}
 				}
@@ -198,7 +203,8 @@ public class KafkaReader {
 				}
 
 				if (!messageIter.hasNext()) {
-					log.info("No more data left to process. Returning false");
+					System.out
+							.println("No more data left to process. Returning false");
 					messageIter = null;
 					return false;
 				}
